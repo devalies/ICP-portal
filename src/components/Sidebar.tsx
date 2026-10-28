@@ -27,8 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, curre
       id: 'dashboard',
       label: 'Pipeline Analytics',
       icon: LayoutDashboard,
-      roles: ['admin', 'manager', 'sales'],
-      badge: 'KPIs',
+      roles: ['admin', 'manager'],
+      badge: 'Executive',
     },
     {
       id: 'pipeline',
@@ -41,7 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, curre
       id: 'projects',
       label: 'Closed Deals & Projects',
       icon: Briefcase,
-      roles: ['admin', 'manager', 'sales', 'senior_dev', 'developer'],
+      roles: ['admin', 'manager', 'senior_dev', 'developer'],
       badge: role === 'developer' || role === 'senior_dev' ? 'Assigned' : null,
     },
     {

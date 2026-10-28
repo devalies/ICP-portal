@@ -78,7 +78,7 @@ export function getUserById(id: number): AuthenticatedUser | null {
   };
 }
 
-// Auth middleware
+// Auth middleware - Strict route security guard
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   let token = '';
@@ -90,24 +90,25 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   if (!token) {
-    // Default to admin user for initial seamless loading if no token provided
-    const defaultUser = getUserById(1);
-    if (defaultUser) {
-      req.user = defaultUser;
-      return next();
-    }
-    return res.status(401).json({ error: 'Authentication required. No bearer token provided.' });
+    return res.status(401).json({
+      error: 'Authentication required. No session bearer token provided.',
+      code: 'UNAUTHENTICATED',
+    });
   }
 
   const user = getUserFromToken(token);
   if (!user) {
-    // Fallback to user 1
-    const defaultUser = getUserById(1);
-    if (defaultUser) {
-      req.user = defaultUser;
-      return next();
-    }
-    return res.status(401).json({ error: 'Session expired or invalid token.' });
+    return res.status(401).json({
+      error: 'Session expired or invalid authentication token. Please log in again.',
+      code: 'SESSION_EXPIRED',
+    });
+  }
+
+  if (!user.isActive) {
+    return res.status(403).json({
+      error: 'Account has been deactivated. Access denied.',
+      code: 'ACCOUNT_DEACTIVATED',
+    });
   }
 
   req.user = user;

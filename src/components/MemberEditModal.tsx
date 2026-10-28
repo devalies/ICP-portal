@@ -55,18 +55,31 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
   }, [member]);
 
   const isSelf = member.id === currentUser?.id;
+  const isTargetAdmin = member.role === 'admin' || member.roleId === 1;
+  const isManager = currentUser?.role === 'manager';
+  const cannotEditAdmin = isTargetAdmin && isManager;
 
   const roles = [
-    { id: 1, name: 'admin', label: 'Administrator', desc: 'Full access to pipelines, projects, users & financials' },
-    { id: 2, name: 'manager', label: 'Manager', desc: 'Team overview, deal approvals, project management' },
-    { id: 3, name: 'sales', label: 'Sales Person', desc: 'ICP outreach, leads, sending ICPIs, creating deals' },
-    { id: 4, name: 'senior_dev', label: 'Senior Developer', desc: 'Architecture, technical specs, assigned projects' },
-    { id: 5, name: 'developer', label: 'Developer', desc: 'Assigned project workspaces, milestones, deliverables' },
+    { id: 1, name: 'admin', label: 'Administrator', desc: 'Full access to pipelines, projects, users & financials', adminOnly: true },
+    { id: 2, name: 'manager', label: 'Manager', desc: 'Team overview, deal approvals, project management', adminOnly: false },
+    { id: 3, name: 'sales', label: 'Sales Person', desc: 'ICP outreach, leads, sending ICPIs, creating deals', adminOnly: false },
+    { id: 4, name: 'senior_dev', label: 'Senior Developer', desc: 'Architecture, technical specs, assigned projects', adminOnly: false },
+    { id: 5, name: 'developer', label: 'Developer', desc: 'Assigned project workspaces, milestones, deliverables', adminOnly: false },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !email) return;
+
+    if (cannotEditAdmin) {
+      alert('Access Denied: Only Administrators are permitted to modify or alter Administrator accounts.');
+      return;
+    }
+
+    if (isManager && Number(roleId) === 1) {
+      alert('Access Denied: Managers cannot promote members to Administrator role.');
+      return;
+    }
 
     if (isSelf && !isActive) {
       alert('You cannot deactivate your own logged-in account.');
@@ -109,6 +122,11 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
                     CURRENT USER
                   </span>
                 )}
+                {isTargetAdmin && (
+                  <span className="rounded bg-purple-500/20 px-1.5 py-0.5 text-[9px] font-bold text-purple-300 border border-purple-500/30">
+                    ADMIN ACCOUNT
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400">
                 Member ID #{member.id} • Assigned Role: <span className="text-indigo-400 font-semibold">{member.roleDisplayName}</span>
@@ -119,6 +137,15 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {cannotEditAdmin && (
+          <div className="mt-4 rounded-xl border border-amber-800/60 bg-amber-950/40 p-3 text-xs text-amber-300 flex items-start space-x-2">
+            <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-400" />
+            <div>
+              <strong>Protected Administrator Account:</strong> Managers cannot modify, alter, or deactivate Admin roles. Only an Administrator has authorization to manage this account.
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Active or Deactive Toggle */}
@@ -169,36 +196,41 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
               <span>Change / Assign Security Role *</span>
             </label>
             <div className="space-y-1.5">
-              {roles.map((r) => (
-                <label
-                  key={r.id}
-                  className={`flex items-start space-x-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors ${
-                    roleId === r.id
-                      ? 'border-indigo-500 bg-indigo-950/40 text-white'
-                      : 'border-slate-800 bg-slate-800/40 text-slate-300 hover:bg-slate-800/80'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="roleId"
-                    value={r.id}
-                    checked={roleId === r.id}
-                    onChange={() => setRoleId(r.id)}
-                    className="mt-1 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold">{r.label}</span>
-                      {roleId === r.id && (
-                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
-                          Assigned
-                        </span>
-                      )}
+              {roles
+                .filter((r) => !isManager || !r.adminOnly)
+                .map((r) => (
+                  <label
+                    key={r.id}
+                    className={`flex items-start space-x-2.5 rounded-lg border p-2.5 transition-colors ${
+                      cannotEditAdmin ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
+                      roleId === r.id
+                        ? 'border-indigo-500 bg-indigo-950/40 text-white'
+                        : 'border-slate-800 bg-slate-800/40 text-slate-300 hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="roleId"
+                      value={r.id}
+                      disabled={cannotEditAdmin}
+                      checked={roleId === r.id}
+                      onChange={() => setRoleId(r.id)}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold">{r.label}</span>
+                        {roleId === r.id && (
+                          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                            Assigned
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{r.desc}</p>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{r.desc}</p>
-                  </div>
-                </label>
-              ))}
+                  </label>
+                ))}
             </div>
           </div>
 
@@ -209,9 +241,10 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
               <input
                 type="text"
                 required
+                disabled={cannotEditAdmin}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -219,9 +252,10 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
               <input
                 type="email"
                 required
+                disabled={cannotEditAdmin}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -234,10 +268,11 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
             <input
               type="password"
               minLength={6}
+              disabled={cannotEditAdmin}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Enter new password (optional)"
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -252,11 +287,11 @@ export const MemberEditModal: React.FC<MemberEditModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={submitting}
-              className="flex items-center space-x-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/30"
+              disabled={submitting || cannotEditAdmin}
+              className="flex items-center space-x-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="h-3.5 w-3.5" />
-              <span>{submitting ? 'Updating...' : 'Save Member Changes'}</span>
+              <span>{submitting ? 'Updating...' : cannotEditAdmin ? 'Protected (Admin Only)' : 'Save Member Changes'}</span>
             </button>
           </div>
         </form>

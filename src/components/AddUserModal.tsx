@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Shield, Lock, Mail, User } from 'lucide-react';
 
+import { User as UserType } from '../types';
+
 interface AddUserModalProps {
   isOpen: boolean;
   onClose: () => void;
+  currentUser?: UserType | null;
   onSubmit: (data: {
     fullName: string;
     email: string;
@@ -15,11 +18,13 @@ interface AddUserModalProps {
 export const AddUserModal: React.FC<AddUserModalProps> = ({
   isOpen,
   onClose,
+  currentUser,
   onSubmit,
 }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const isManager = currentUser?.role === 'manager';
   const [roleId, setRoleId] = useState<number>(3); // Default to Sales Person
   const [submitting, setSubmitting] = useState(false);
 
@@ -111,12 +116,17 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
               onChange={(e) => setRoleId(Number(e.target.value))}
               className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
             >
-              <option value={1}>Administrator (Full Access & User Management)</option>
+              {!isManager && <option value={1}>Administrator (Full Access & User Management)</option>}
               <option value={2}>Manager (Operations, Deal Approvals & Project Workspace)</option>
               <option value={3}>Sales Person (ICP Pipeline, Outreach & Conversions)</option>
               <option value={4}>Senior Developer (Assigned Projects, Tech Scopes & Specs)</option>
               <option value={5}>Developer (Assigned Projects, Milestones & Deliverables)</option>
             </select>
+            {isManager && (
+              <p className="mt-1 text-[10px] text-amber-400">
+                * Note: Administrator accounts can only be provisioned by an Administrator.
+              </p>
+            )}
           </div>
 
           <div className="rounded border border-indigo-900/40 bg-indigo-950/20 p-2.5 text-[11px] text-slate-400">

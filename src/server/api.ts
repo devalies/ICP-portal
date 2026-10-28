@@ -60,8 +60,8 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
   });
 });
 
-// Switch role / demo user impersonator for quick evaluation
-apiRouter.post('/auth/switch', (req: Request, res: Response) => {
+// Switch role / persona simulation (Protected: only authenticated Admin users may simulate other roles)
+apiRouter.post('/auth/switch', requireAuth, requireRoles('admin'), (req: Request, res: Response) => {
   const { userId } = req.body;
   const user = getUserById(Number(userId));
   if (!user) {
@@ -69,7 +69,7 @@ apiRouter.post('/auth/switch', (req: Request, res: Response) => {
   }
 
   const token = createSessionToken(user.id);
-  recordAudit(req, 'ROLE_SWITCH', 'users', user.id, `Active session switched to ${user.fullName} (${user.roleDisplayName})`);
+  recordAudit(req, 'ROLE_SWITCH', 'users', user.id, `Admin ${req.user!.fullName} switched active persona session to ${user.fullName} (${user.roleDisplayName})`);
 
   res.json({
     token,
@@ -142,6 +142,13 @@ apiRouter.post('/users', requireAuth, requireRoles('admin', 'manager'), (req: Re
     return res.status(400).json({ error: 'Full name, email, password, and role are required.' });
   }
 
+  // Hierarchy check: Only Admin can create an Admin user
+  if (Number(roleId) === 1 && req.user!.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Access Denied: Managers are not authorized to create Administrator accounts. Only Administrators can create Admin roles.',
+    });
+  }
+
   const db = getDatabase();
   const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(email);
   if (existing) {
@@ -173,6 +180,18 @@ apiRouter.patch('/users/:id/status', requireAuth, requireRoles('admin', 'manager
   }
 
   const db = getDatabase();
+  const targetUser = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId) as any;
+  if (!targetUser) {
+    return res.status(404).json({ error: 'Target user not found.' });
+  }
+
+  // Hierarchy check: Non-admins cannot alter or deactivate an Admin account
+  if (targetUser.role_id === 1 && req.user!.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Access Denied: Only Administrators are permitted to manage or deactivate Admin accounts.',
+    });
+  }
+
   db.prepare('UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(isActive ? 1 : 0, targetId);
   recordAudit(req, 'USER_STATUS_CHANGE', 'users', targetId, `User status updated to ${isActive ? 'Active' : 'Deactivated'}`);
 
@@ -188,6 +207,20 @@ apiRouter.patch('/users/:id', requireAuth, requireRoles('admin', 'manager'), (re
   const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId) as any;
   if (!existing) {
     return res.status(404).json({ error: 'Team member not found.' });
+  }
+
+  // Hierarchy check: Non-admins cannot alter Admin accounts
+  if (existing.role_id === 1 && req.user!.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Access Denied: Only Administrators are permitted to manage or modify Admin accounts.',
+    });
+  }
+
+  // Hierarchy check: Non-admins cannot assign Admin role (roleId 1)
+  if (roleId !== undefined && Number(roleId) === 1 && req.user!.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Access Denied: Managers cannot promote team members to the Administrator role.',
+    });
   }
 
   if (targetId === req.user!.id && isActive === false) {
@@ -229,11 +262,35 @@ apiRouter.patch('/users/:id', requireAuth, requireRoles('admin', 'manager'), (re
   res.json({ user: updatedUser, message: 'Member details and role assignment updated successfully.' });
 });
 
+// Delete user (Strictly Administrator only; cannot delete Admin accounts)
+apiRouter.delete('/users/:id', requireAuth, requireRoles('admin'), (req: Request, res: Response) => {
+  const targetId = Number(req.params.id);
+  const db = getDatabase();
+
+  const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  if (existing.role_id === 1) {
+    return res.status(403).json({ error: 'Administrator accounts cannot be deleted.' });
+  }
+
+  if (targetId === req.user!.id) {
+    return res.status(400).json({ error: 'Cannot delete your own logged-in account.' });
+  }
+
+  db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+  recordAudit(req, 'USER_DELETE', 'users', targetId, `Deleted user ${existing.full_name} (${existing.email})`);
+
+  res.json({ message: 'User account removed.' });
+});
+
 // ==========================================
 // 3. CLIENTS DIRECTORY
 // ==========================================
 
-apiRouter.get('/clients', requireAuth, (req: Request, res: Response) => {
+apiRouter.get('/clients', requireAuth, requireRoles('admin', 'manager', 'sales'), (req: Request, res: Response) => {
   const db = getDatabase();
   const search = typeof req.query.search === 'string' ? req.query.search : '';
 
@@ -257,7 +314,7 @@ apiRouter.get('/clients', requireAuth, (req: Request, res: Response) => {
   res.json({ clients });
 });
 
-apiRouter.post('/clients', requireAuth, (req: Request, res: Response) => {
+apiRouter.post('/clients', requireAuth, requireRoles('admin', 'manager', 'sales'), (req: Request, res: Response) => {
   const { clientName, companyName, email, phone, industry, website, notes } = req.body;
 
   if (!clientName || !companyName || !email) {
@@ -276,7 +333,7 @@ apiRouter.post('/clients', requireAuth, (req: Request, res: Response) => {
   res.status(201).json({ id: clientId, message: 'Client created successfully.' });
 });
 
-apiRouter.get('/clients/:id', requireAuth, (req: Request, res: Response) => {
+apiRouter.get('/clients/:id', requireAuth, requireRoles('admin', 'manager', 'sales'), (req: Request, res: Response) => {
   const db = getDatabase();
   const clientId = Number(req.params.id);
 

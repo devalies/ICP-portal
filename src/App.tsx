@@ -43,12 +43,31 @@ import { LoginModal } from './components/LoginModal';
 import { MemberEditModal } from './components/MemberEditModal';
 import { PipelineDetailModal } from './components/PipelineDetailModal';
 import { LoginScreen } from './components/LoginScreen';
+import { UnauthorizedAccess } from './components/UnauthorizedAccess';
+
+// Granular Tab Permission Matrix per System Security Hierarchy
+const TAB_PERMISSIONS: Record<string, string[]> = {
+  dashboard: ['admin', 'manager'],
+  pipeline: ['admin', 'manager', 'sales'],
+  projects: ['admin', 'manager', 'senior_dev', 'developer'],
+  clients: ['admin', 'manager', 'sales'],
+  team: ['admin', 'manager'],
+  audit: ['admin', 'manager'],
+};
+
+// Default Landing Tab based on Role
+const getDefaultTabForRole = (role: string): string => {
+  if (role === 'developer' || role === 'senior_dev') return 'projects';
+  if (role === 'sales') return 'pipeline';
+  return 'dashboard';
+};
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [initialAuthChecked, setInitialAuthChecked] = useState<boolean>(false);
 
   // Data states
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null);
@@ -84,9 +103,28 @@ export default function App() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(null);
   const [showPipelineDetailModal, setShowPipelineDetailModal] = useState<boolean>(false);
 
-  // Initial load
+  // Initial authentication check & URL route synchronization
   useEffect(() => {
     initApp();
+  }, []);
+
+  // Synchronize hash changes (e.g. user pastes or navigates to #/pipeline, #/team, etc.)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+      if (!apiClient.getToken()) {
+        if (rawHash && rawHash !== 'login') {
+          window.location.hash = '#/login';
+        }
+        return;
+      }
+      if (rawHash && TAB_PERMISSIONS[rawHash]) {
+        setCurrentTab(rawHash);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
   const initApp = async () => {
@@ -96,44 +134,72 @@ export default function App() {
         const meRes = await apiClient.getMe().catch(() => null);
         if (meRes?.user) {
           setCurrentUser(meRes.user);
-          loadPortalData();
+
+          // Parse hash route or set role default
+          const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+          if (rawHash && TAB_PERMISSIONS[rawHash]) {
+            setCurrentTab(rawHash);
+          } else {
+            const defaultTab = getDefaultTabForRole(meRes.user.role);
+            setCurrentTab(defaultTab);
+            window.location.hash = `#/${defaultTab}`;
+          }
+
+          loadPortalData(meRes.user);
+          setInitialAuthChecked(true);
           return;
+        } else {
+          apiClient.clearToken();
         }
       }
-      // Initial seamless entrance with admin credentials
-      const switchRes = await apiClient.switchRole(1);
-      setCurrentUser(switchRes.user);
-      loadPortalData();
+
+      // No authenticated session: enforce login view at root /
+      setCurrentUser(null);
+      if (window.location.hash !== '' && window.location.hash !== '#/login') {
+        window.location.hash = '#/login';
+      }
     } catch (err) {
-      console.error('Initialization error:', err);
+      console.error('Authentication verification error:', err);
+      apiClient.clearToken();
+      setCurrentUser(null);
+    } finally {
+      setInitialAuthChecked(true);
     }
   };
 
-  const loadPortalData = async () => {
+  const loadPortalData = async (activeUser?: User | null) => {
+    const user = activeUser || currentUser;
+    if (!user) return;
+    const role = user.role;
+
     try {
-      // Fetch users
-      const uData = await apiClient.getUsers();
-      setUsersList(uData.users || []);
-
-      // Fetch clients
-      const cData = await apiClient.getClients();
-      setClients(cData.clients || []);
-      if (cData.clients?.length && !selectedClientId) {
-        setSelectedClientId(cData.clients[0].id);
+      // 1. Projects workspace: available to all roles (devs get assigned, admins/managers see all)
+      const pData = await apiClient.getProjects().catch(() => ({ projects: [] }));
+      const projectList = pData.projects || [];
+      setProjects(projectList);
+      if (projectList.length && (!selectedProjectId || !projectList.some((p: any) => p.id === selectedProjectId))) {
+        setSelectedProjectId(projectList[0].id);
+        loadProjectDetails(projectList[0].id);
       }
 
-      // Fetch projects
-      const pData = await apiClient.getProjects();
-      setProjects(pData.projects || []);
-      if (pData.projects?.length) {
-        const firstId = pData.projects[0].id;
-        setSelectedProjectId(firstId);
-        loadProjectDetails(firstId);
+      // 2. Team Directory: only for Admin & Manager
+      if (role === 'admin' || role === 'manager') {
+        const uData = await apiClient.getUsers().catch(() => ({ users: [] }));
+        setUsersList(uData.users || []);
       }
 
-      // Fetch pipeline & metrics if user has permissions
-      const role = currentUser?.role || 'admin';
-      if (role !== 'developer' && role !== 'senior_dev') {
+      // 3. Clients Directory: Admin, Manager, Sales
+      if (role === 'admin' || role === 'manager' || role === 'sales') {
+        const cData = await apiClient.getClients().catch(() => ({ clients: [] }));
+        const clientList = cData.clients || [];
+        setClients(clientList);
+        if (clientList.length && !selectedClientId) {
+          setSelectedClientId(clientList[0].id);
+        }
+      }
+
+      // 4. ICP Pipeline & Centralized Analytics: Admin, Manager, Sales
+      if (role === 'admin' || role === 'manager' || role === 'sales') {
         const mData = await apiClient.getPipelineMetrics().catch(() => null);
         if (mData) {
           setMetrics(mData.metrics);
@@ -166,39 +232,34 @@ export default function App() {
   const handleSignOut = () => {
     apiClient.clearToken();
     setCurrentUser(null);
+    window.location.hash = '#/login';
   };
 
-  // Switch persona handler
+  // Sign in handler
+  const handleLoginSuccess = (user: User) => {
+    setCurrentUser(user);
+    const defaultTab = getDefaultTabForRole(user.role);
+    setCurrentTab(defaultTab);
+    window.location.hash = `#/${defaultTab}`;
+    loadPortalData(user);
+  };
+
+  // Navigation tab handler
+  const handleNavigateTab = (tab: string) => {
+    setCurrentTab(tab);
+    window.location.hash = `#/${tab}`;
+  };
+
+  // Switch persona handler (Protected: Admin only)
   const handleSwitchUser = async (userId: number) => {
     try {
       const data = await apiClient.switchRole(userId);
       setCurrentUser(data.user);
 
-      // If developer role, enforce redirect to 'projects' workspace
-      if (data.user.role === 'developer' || data.user.role === 'senior_dev') {
-        setCurrentTab('projects');
-      }
-
-      // Reload project list and scoped data
-      const pData = await apiClient.getProjects();
-      setProjects(pData.projects || []);
-      if (pData.projects?.length) {
-        setSelectedProjectId(pData.projects[0].id);
-        loadProjectDetails(pData.projects[0].id);
-      }
-
-      if (data.user.role !== 'developer' && data.user.role !== 'senior_dev') {
-        const mData = await apiClient.getPipelineMetrics().catch(() => null);
-        if (mData) {
-          setMetrics(mData.metrics);
-          setIndustryStats(mData.industryStats || []);
-          setSalesRepStats(mData.salesRepStats || []);
-        }
-        const pipeData = await apiClient.getPipeline().catch(() => null);
-        if (pipeData?.items) {
-          setPipelineItems(pipeData.items);
-        }
-      }
+      // Redirect to default tab for switched role
+      const nextTab = getDefaultTabForRole(data.user.role);
+      handleNavigateTab(nextTab);
+      loadPortalData(data.user);
     } catch (err: any) {
       alert(err.message || 'Failed to switch user');
     }
@@ -220,13 +281,13 @@ export default function App() {
     loadPortalData();
   };
 
-  const handleConvertToDeal = async (id: number, data: any) => {
-    const res = await apiClient.convertToDeal(id, data);
+  const handleConvertToDeal = async (pipelineId: number, data: any) => {
+    const res = await apiClient.convertToDeal(pipelineId, data);
     loadPortalData();
-    setCurrentTab('projects');
     if (res.dealId) {
       setSelectedProjectId(res.dealId);
       loadProjectDetails(res.dealId);
+      handleNavigateTab('projects');
     }
   };
 
@@ -235,7 +296,7 @@ export default function App() {
     loadProjectDetails(id);
   };
 
-  const handleUpdateProjectStatus = async (id: number, status: ClosedDeal['status']) => {
+  const handleUpdateProjectStatus = async (id: number, status: any) => {
     await apiClient.updateProject(id, { status });
     loadProjectDetails(id);
     const pData = await apiClient.getProjects();
@@ -284,7 +345,7 @@ export default function App() {
 
   const handleSelectClient = (clientId: number) => {
     setSelectedClientId(clientId);
-    setCurrentTab('clients');
+    handleNavigateTab('clients');
   };
 
   const handleOpenPipelineDetail = (id: number) => {
@@ -292,21 +353,27 @@ export default function App() {
     setShowPipelineDetailModal(true);
   };
 
-  // If signed out, render dedicated LoginScreen
-  if (!currentUser) {
+  // If initial auth check not finished, show loader
+  if (!initialAuthChecked) {
     return (
-      <LoginScreen
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          loadPortalData();
-        }}
-      />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
+        <div className="flex flex-col items-center space-y-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+          <span className="text-xs font-mono">Verifying enterprise session...</span>
+        </div>
+      </div>
     );
   }
 
-  // Check role restriction
-  const userRole = currentUser?.role || 'admin';
-  const isDevRole = userRole === 'developer' || userRole === 'senior_dev';
+  // 1. Authentication Guard: Root home page serves as secure login page. Unauthenticated users are strictly blocked.
+  if (!currentUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // 2. Route Security Guards: check if current user role is authorized for currentTab
+  const userRole = currentUser.role;
+  const allowedRolesForTab = TAB_PERMISSIONS[currentTab] || [];
+  const isTabAuthorized = allowedRolesForTab.includes(userRole);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -319,7 +386,7 @@ export default function App() {
         onSignOut={handleSignOut}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        onNavigateTab={(tab) => setCurrentTab(tab)}
+        onNavigateTab={handleNavigateTab}
       />
 
       {/* Mobile nav bar toggle */}
@@ -339,52 +406,60 @@ export default function App() {
       {/* Mobile navigation drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-b border-slate-800 bg-slate-900 p-4 space-y-1.5 shadow-xl">
-          {!isDevRole && (
-            <>
-              <button
-                onClick={() => { setCurrentTab('dashboard'); setMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-              >
-                Pipeline Analytics
-              </button>
-              <button
-                onClick={() => { setCurrentTab('pipeline'); setMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'pipeline' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-              >
-                ICP Pipeline
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => { setCurrentTab('projects'); setMobileMenuOpen(false); }}
-            className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'projects' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-          >
-            Closed Deals & Projects
-          </button>
-          {!isDevRole && (
+          {TAB_PERMISSIONS.dashboard.includes(userRole) && (
             <button
-              onClick={() => { setCurrentTab('clients'); setMobileMenuOpen(false); }}
+              onClick={() => { handleNavigateTab('dashboard'); setMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              Pipeline Analytics
+            </button>
+          )}
+
+          {TAB_PERMISSIONS.pipeline.includes(userRole) && (
+            <button
+              onClick={() => { handleNavigateTab('pipeline'); setMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'pipeline' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              ICP Pipeline
+            </button>
+          )}
+
+          {TAB_PERMISSIONS.projects.includes(userRole) && (
+            <button
+              onClick={() => { handleNavigateTab('projects'); setMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'projects' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              Closed Deals & Projects
+            </button>
+          )}
+
+          {TAB_PERMISSIONS.clients.includes(userRole) && (
+            <button
+              onClick={() => { handleNavigateTab('clients'); setMobileMenuOpen(false); }}
               className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'clients' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
             >
               Client Records
             </button>
           )}
-          {(userRole === 'admin' || userRole === 'manager') && (
-            <>
-              <button
-                onClick={() => { setCurrentTab('team'); setMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-              >
-                Team & RBAC Users
-              </button>
-              <button
-                onClick={() => { setCurrentTab('audit'); setMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-              >
-                Audit Trail & Logs
-              </button>
-            </>
+
+          {TAB_PERMISSIONS.team.includes(userRole) && (
+            <button
+              onClick={() => { handleNavigateTab('team'); setMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              Team & RBAC Users
+            </button>
           )}
+
+          {TAB_PERMISSIONS.audit.includes(userRole) && (
+            <button
+              onClick={() => { handleNavigateTab('audit'); setMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors ${currentTab === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            >
+              Audit Trail & Logs
+            </button>
+          )}
+
           <div className="pt-2 border-t border-slate-800">
             <button
               onClick={() => {
@@ -404,99 +479,94 @@ export default function App() {
         {/* Sidebar */}
         <Sidebar
           currentTab={currentTab}
-          onSelectTab={(tab) => setCurrentTab(tab)}
+          onSelectTab={handleNavigateTab}
           currentUser={currentUser}
         />
 
-        {/* Content Pane */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          {/* RBAC restriction alert for developer view */}
-          {isDevRole && currentTab !== 'projects' && (
-            <div className="mb-6 rounded-xl border border-amber-900/50 bg-amber-950/30 p-4 text-xs text-amber-300 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Lock className="h-4 w-4" />
-                <span>Developer Security Restriction: Navigating to your assigned operational project workspace.</span>
-              </div>
-              <button
-                onClick={() => setCurrentTab('projects')}
-                className="rounded bg-amber-600 px-2 py-1 text-white font-medium hover:bg-amber-500"
-              >
-                Go to Projects
-              </button>
-            </div>
-          )}
-
-          {/* Tab Views */}
-          {currentTab === 'dashboard' && !isDevRole && (
-            <DashboardView
-              metrics={metrics}
-              industryStats={industryStats}
-              salesRepStats={salesRepStats}
-              onOpenNewLead={() => setShowNewLeadModal(true)}
-              onNavigateTab={(tab) => setCurrentTab(tab)}
-            />
-          )}
-
-          {currentTab === 'pipeline' && !isDevRole && (
-            <PipelineView
-              items={pipelineItems}
-              onOpenNewLead={() => setShowNewLeadModal(true)}
-              onSendIcpi={(item) => {
-                setActiveIcpiItem(item);
-                setShowSendIcpiModal(true);
-              }}
-              onConvertToDeal={(item) => {
-                setActiveConvertItem(item);
-                setShowConvertModal(true);
-              }}
-              onUpdateStatus={handleUpdatePipelineStatus}
-              onSelectClient={handleSelectClient}
-              onSelectPipeline={handleOpenPipelineDetail}
-              searchQuery={searchQuery}
-            />
-          )}
-
-          {currentTab === 'projects' && (
-            <ProjectsView
-              projects={projects}
+        {/* Content Pane with Protected Route Guard */}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 flex flex-col">
+          {!isTabAuthorized ? (
+            <UnauthorizedAccess
               currentUser={currentUser}
-              selectedProject={selectedProject}
-              milestones={milestones}
-              documents={documents}
-              onSelectProject={handleSelectProject}
-              onOpenNewMilestone={() => setShowMilestoneModal(true)}
-              onOpenUploadDoc={() => setShowDocModal(true)}
-              onUpdateMilestoneStatus={handleUpdateMilestoneStatus}
-              onUpdateProjectStatus={handleUpdateProjectStatus}
-              onDeleteDocument={handleDeleteDocument}
+              attemptedTab={currentTab}
+              allowedRoles={allowedRolesForTab}
+              onNavigateHome={() => handleNavigateTab(getDefaultTabForRole(userRole))}
+              onSignOut={handleSignOut}
             />
-          )}
+          ) : (
+            <>
+              {currentTab === 'dashboard' && (
+                <DashboardView
+                  metrics={metrics}
+                  industryStats={industryStats}
+                  salesRepStats={salesRepStats}
+                  onOpenNewLead={() => setShowNewLeadModal(true)}
+                  onNavigateTab={handleNavigateTab}
+                />
+              )}
 
-          {currentTab === 'clients' && !isDevRole && (
-            <ClientsView
-              clients={clients}
-              selectedClientId={selectedClientId}
-              onSelectClient={(id) => setSelectedClientId(id)}
-              onRefreshClients={loadPortalData}
-              searchQuery={searchQuery}
-            />
-          )}
+              {currentTab === 'pipeline' && (
+                <PipelineView
+                  items={pipelineItems}
+                  onOpenNewLead={() => setShowNewLeadModal(true)}
+                  onSendIcpi={(item) => {
+                    setActiveIcpiItem(item);
+                    setShowSendIcpiModal(true);
+                  }}
+                  onConvertToDeal={(item) => {
+                    setActiveConvertItem(item);
+                    setShowConvertModal(true);
+                  }}
+                  onUpdateStatus={handleUpdatePipelineStatus}
+                  onSelectClient={handleSelectClient}
+                  onSelectPipeline={handleOpenPipelineDetail}
+                  searchQuery={searchQuery}
+                />
+              )}
 
-          {currentTab === 'team' && (
-            <TeamManagementView
-              users={usersList}
-              currentUser={currentUser}
-              onRefreshUsers={loadPortalData}
-              onOpenAddUser={() => setShowAddUserModal(true)}
-              onSelectMember={(u) => {
-                setSelectedMember(u);
-                setShowMemberEditModal(true);
-              }}
-            />
-          )}
+              {currentTab === 'projects' && (
+                <ProjectsView
+                  projects={projects}
+                  currentUser={currentUser}
+                  selectedProject={selectedProject}
+                  milestones={milestones}
+                  documents={documents}
+                  onSelectProject={handleSelectProject}
+                  onOpenNewMilestone={() => setShowMilestoneModal(true)}
+                  onOpenUploadDoc={() => setShowDocModal(true)}
+                  onUpdateMilestoneStatus={handleUpdateMilestoneStatus}
+                  onUpdateProjectStatus={handleUpdateProjectStatus}
+                  onDeleteDocument={handleDeleteDocument}
+                />
+              )}
 
-          {currentTab === 'audit' && (
-            <AuditTrailView />
+              {currentTab === 'clients' && (
+                <ClientsView
+                  clients={clients}
+                  selectedClientId={selectedClientId}
+                  onSelectClient={(id) => setSelectedClientId(id)}
+                  onRefreshClients={() => loadPortalData()}
+                  searchQuery={searchQuery}
+                />
+              )}
+
+              {currentTab === 'team' && (
+                <TeamManagementView
+                  users={usersList}
+                  currentUser={currentUser}
+                  onRefreshUsers={() => loadPortalData()}
+                  onOpenAddUser={() => setShowAddUserModal(true)}
+                  onSelectMember={(u) => {
+                    setSelectedMember(u);
+                    setShowMemberEditModal(true);
+                  }}
+                />
+              )}
+
+              {currentTab === 'audit' && (
+                <AuditTrailView />
+              )}
+            </>
           )}
         </main>
       </div>
@@ -555,7 +625,7 @@ export default function App() {
           setSelectedPipelineId(null);
         }}
         pipelineId={selectedPipelineId}
-        onRefreshPipeline={loadPortalData}
+        onRefreshPipeline={() => loadPortalData()}
         onConvertToDeal={(item) => {
           setActiveConvertItem(item);
           setShowConvertModal(true);
@@ -583,6 +653,7 @@ export default function App() {
       <AddUserModal
         isOpen={showAddUserModal}
         onClose={() => setShowAddUserModal(false)}
+        currentUser={currentUser}
         onSubmit={handleAddUser}
       />
 
@@ -590,10 +661,7 @@ export default function App() {
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
         currentUser={currentUser}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          loadPortalData();
-        }}
+        onLoginSuccess={handleLoginSuccess}
       />
     </div>
   );

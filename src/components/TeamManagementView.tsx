@@ -33,10 +33,16 @@ export const TeamManagementView: React.FC<TeamManagementViewProps> = ({
 
   const role = currentUser?.role || 'admin';
   const hasAccess = role === 'admin' || role === 'manager';
+  const isManager = role === 'manager';
 
   const handleToggleStatus = async (user: UserType) => {
     if (user.id === currentUser?.id) {
       alert('You cannot deactivate your own active logged-in account.');
+      return;
+    }
+
+    if (isManager && (user.role === 'admin' || user.roleId === 1)) {
+      alert('Access Denied: Managers cannot deactivate or modify Administrator accounts.');
       return;
     }
 
