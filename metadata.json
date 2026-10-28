@@ -1,0 +1,6 @@
+{
+  "name": "NexusICP - Order & ICP Pipeline Tracking Portal",
+  "description": "Enterprise role-based ICP pipeline tracking, closed deals workspace, project milestones, and client analytics portal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
