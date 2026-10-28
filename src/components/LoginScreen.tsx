@@ -39,18 +39,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleQuickLogin = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-  };
 
-  const demoAccounts = [
-    { role: 'Administrator', email: 'admin@nexusicp.io', pass: 'Admin123!', color: 'border-purple-700/50 text-purple-300 bg-purple-950/30' },
-    { role: 'Manager', email: 'sarah.chen@nexusicp.io', pass: 'Manager123!', color: 'border-blue-700/50 text-blue-300 bg-blue-950/30' },
-    { role: 'Sales Person', email: 'marcus.vance@nexusicp.io', pass: 'Sales123!', color: 'border-emerald-700/50 text-emerald-300 bg-emerald-950/30' },
-    { role: 'Senior Developer', email: 'alex.moran@nexusicp.io', pass: 'Dev123!', color: 'border-amber-700/50 text-amber-300 bg-amber-950/30' },
-    { role: 'Developer', email: 'priya.patel@nexusicp.io', pass: 'Dev123!', color: 'border-cyan-700/50 text-cyan-300 bg-cyan-950/30' },
-  ];
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 text-slate-100 selection:bg-indigo-500 selection:text-white">
@@ -100,7 +89,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@nexusicp.io"
+                  placeholder="yourmail@nexusicp.io"
                   className="w-full rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
@@ -132,26 +121,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>
-
-          {/* Quick Demo Credentials */}
-          <div className="mt-6 border-t border-slate-800 pt-5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 text-center">
-              One-Click Role Login Quick Fill:
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {demoAccounts.map((acc, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleQuickLogin(acc.email, acc.pass)}
-                  className={`flex flex-col text-left p-2.5 rounded-xl border transition-all hover:scale-[1.02] ${acc.color}`}
-                >
-                  <span className="font-bold text-[11px]">{acc.role}</span>
-                  <span className="text-[10px] text-slate-400 truncate">{acc.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Security badge footer */}

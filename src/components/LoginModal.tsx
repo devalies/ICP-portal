@@ -62,11 +62,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  const fillQuick = (e: string, p: string) => {
-    setEmail(e);
-    setPassword(p);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
@@ -122,7 +117,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. admin@nexusicp.io"
+                placeholder="yourmail@nexusicp.io"
                 className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
               />
             </div>
@@ -137,40 +132,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 placeholder="Enter password"
                 className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
               />
-            </div>
-
-            <div className="rounded border border-slate-800 bg-slate-800/40 p-2.5 text-[10px] text-slate-400 space-y-1">
-              <span className="font-semibold text-slate-300 block">Quick Demo Credentials:</span>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => fillQuick('admin@nexusicp.io', 'Admin123!')}
-                  className="rounded bg-slate-700/80 px-1.5 py-0.5 hover:bg-slate-700 text-purple-300"
-                >
-                  Admin (Admin123!)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillQuick('sarah.chen@nexusicp.io', 'Manager123!')}
-                  className="rounded bg-slate-700/80 px-1.5 py-0.5 hover:bg-slate-700 text-blue-300"
-                >
-                  Manager (Manager123!)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillQuick('marcus.vance@nexusicp.io', 'Sales123!')}
-                  className="rounded bg-slate-700/80 px-1.5 py-0.5 hover:bg-slate-700 text-emerald-300"
-                >
-                  Sales (Sales123!)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillQuick('alex.moran@nexusicp.io', 'Dev123!')}
-                  className="rounded bg-slate-700/80 px-1.5 py-0.5 hover:bg-slate-700 text-amber-300"
-                >
-                  Sr Dev (Dev123!)
-                </button>
-              </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
