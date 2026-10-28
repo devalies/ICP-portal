@@ -2,6 +2,10 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Hash passwords using SHA-256 with salt
 export function hashPassword(password: string): string {
@@ -9,8 +13,9 @@ export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password + salt).digest('hex');
 }
 
-// Database directory & path
-const DB_DIR = path.resolve(process.cwd(), 'data');
+// Database directory & path (use /tmp on Vercel/serverless environments where root is read-only)
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DB_DIR = isServerless ? path.join('/tmp', 'nexus_data') : path.resolve(process.cwd(), 'data');
 const DB_PATH = path.join(DB_DIR, 'nexus_portal.db');
 
 let dbInstance: DatabaseSync | null = null;
@@ -26,11 +31,18 @@ export function getDatabase(): DatabaseSync {
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA journal_mode = WAL;');
 
-  // Run migrations
-  const migrationPath = path.resolve(process.cwd(), 'src/db/migrations.sql');
-  if (fs.existsSync(migrationPath)) {
-    const migrationSql = fs.readFileSync(migrationPath, 'utf8');
-    db.exec(migrationSql);
+  // Run migrations - support both relative to __dirname and process.cwd()
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'src/db/migrations.sql'),
+    path.resolve(__dirname, 'migrations.sql'),
+    path.resolve(__dirname, '../db/migrations.sql')
+  ];
+  for (const migrationPath of possiblePaths) {
+    if (fs.existsSync(migrationPath)) {
+      const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+      db.exec(migrationSql);
+      break;
+    }
   }
 
   // Seed default data if roles table is empty
